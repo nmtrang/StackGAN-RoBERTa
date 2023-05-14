@@ -1,0 +1,13 @@
+ujson 
+numpy 
+spacy 
+wandb
+tensorboard 
+tensorflow 
+tensorboardX 
+tqdm 
+urllib3 
+torch 
+torchvision
+transformers
+torchfile
