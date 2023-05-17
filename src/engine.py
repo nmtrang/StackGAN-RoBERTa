@@ -1,14 +1,25 @@
 """Train and Eval functions
 
 """
+import numpy as np
 import torch
 import torch.nn as nn
+import torchvision.transforms as transforms
 import wandb
+from pytorch_fid import fid_score
+from scipy.stats import entropy
+from torch.utils.data import DataLoader
+from torchvision.datasets import ImageFolder
+from torchvision.models import inception_v3
+from pytorch_lightning.callbacks import ModelCheckpoint
 from tqdm import tqdm
 
+import args
 import util
 
-wandb.init(project='StackGAN-RoBERTa', sync_tensorboard=True, log_dir=arg.log_dir)
+data_args = args.get_all_args()
+wandb.init(project='StackGAN-RoBERTa', notes='This is training stage 1',
+           tags=['stage1', 'roberta'], dir=data_args.log_dir, resume=True)
 
 
 def KL_loss(mu, logvar):
@@ -36,6 +47,22 @@ def gen_loss(disc, fake_imgs, real_labels, conditional_vector):
     cond = conditional_vector.detach()
     fake_loss = loss_fn(disc(cond, fake_imgs), real_labels)
     return fake_loss
+
+
+def extract_features(images):
+    """
+    Extracts features from images using the Inception model.
+    """
+    # Normalize the images to the expected range for the Inception model
+    images = (images + 1) / 2
+    images = images.clamp(0, 1)
+    images = torchvision.transforms.Resize((299, 299))(images)
+
+    # Pass the images through the Inception model
+    with torch.no_grad():
+        features = inception_model(images).detach().cpu().numpy()
+
+    return features
 
 
 def weights_init(m):
@@ -66,6 +93,9 @@ def train_new_fn(
     count
 ):
     errD_, errD_real_, errD_wrong_, errD_fake_, errG_, kl_loss_ = 0, 0, 0, 0, 0, 0
+    wandb.watch(netG)
+    wandb.watch(netD)
+    real_images_all, fake_images_all = [], []
     for batch_id, data in tqdm(
         enumerate(data_loader),
         total=len(data_loader),
@@ -105,11 +135,24 @@ def train_new_fn(
                             "D_loss_fake": errD_fake.data,
                             "G_loss": errG.data,
                             "KL_loss": kl_loss.data}
-            
+
             wandb.log(loss_metrics, step=count)
 
             # * save the image result for each epoch:
             lr_fake, fake, _, _ = netG(text_emb, fixed_noise)
+            try:
+                fid = calculate_fid(real_images, fake, args)
+                wandb.log({"FID": fid})
+            except:
+                pass
+
+            try:
+                inception_score = calculate_inception_score(
+                    netG, args.IS_NUM_SAMPLES, args.BATCH_SIZE, args.device, kl_loss.data)
+                wandb.log({"Inception Score": inception_score})
+            except:
+                pass
+
             util.save_img_results(real_images, fake, epoch, args)
             if lr_fake is not None:
                 util.save_img_results(None, lr_fake, epoch, args)
@@ -131,29 +174,69 @@ def train_new_fn(
     return errD_, errD_real_, errD_wrong_, errD_fake_, errG_, kl_loss_, count
 
 
-def eval_fn(data_loader, model, device, epoch):
-    model.eval()
-    fin_y = []
-    fin_outputs = []
-    LOSS = 0.0
+def calculate_fid(real_images, fake_images, args):
+    # Resize images to 2048x2048 if necessary
+    if args.image_size < 2048:
+        real_images = torch.nn.functional.interpolate(
+            real_images, size=(2048, 2048), mode='bilinear', align_corners=False)
+        fake_images = torch.nn.functional.interpolate(
+            fake_images, size=(2048, 2048), mode='bilinear', align_corners=False)
 
-    with torch.no_grad():
-        for batch_id, data in tqdm(enumerate(data_loader), total=len(data_loader)):
-            text_embs, images = data
+    # Calculate FID score using pytorch-fid
+    fid = fid_score.calculate_fid_given_tensors(
+        real_images, fake_images, args.device, args.FID_BATCH_SIZE)
 
-            # Loading it to device
-            text_embs = text_embs.to(device, dtype=torch.float)
-            images = images.to(device, dtype=torch.float)
+    return fid
 
-            # getting outputs from model and calculating loss
-            outputs = model(text_embs, images)
-            loss = loss_fn(outputs, images)  # TODO figure this out
-            LOSS += loss
 
-            # for calculating accuracy and other metrics # TODO figure this out
-            fin_y.extend(images.view(-1, 1).cpu().detach().numpy().tolist())
-            fin_outputs.extend(torch.sigmoid(
-                outputs).cpu().detach().numpy().tolist())
+def calculate_inception_score(netG, num_samples, batch_size, device, kl_loss=None):
+    """Calculate the Inception Score for a generator network.
 
-    LOSS /= len(data_loader)
-    return fin_outputs, fin_y, LOSS
+    Args:
+        netG (nn.Module): The generator network.
+        num_samples (int): The number of fake images to generate.
+        batch_size (int): The batch size to use for generating the images.
+        device (str): The device to use for computation.
+        kl_loss (float, optional): The pre-computed KL loss. Defaults to None.
+
+    Returns:
+        float: The Inception Score.
+    """
+    netG.eval()
+    inception_model = inception_v3(
+        pretrained=True, transform_input=False).to(device)
+    inception_model.eval()
+
+    if kl_loss is None:
+        # * Generate latent vectors:
+        z = torch.randn(num_samples, netG.z_dim, device=device)
+
+        # * Generate fake images:
+        fake_images = []
+        for i in range(0, num_samples, batch_size):
+            with torch.no_grad():
+                batch_z = z[i:i+batch_size]
+                batch_images = netG.generate_from_z(batch_z).cpu()
+            fake_images.append(batch_images)
+        fake_images = torch.cat(fake_images, dim=0)
+
+        # * Calculate KL divergence:
+        mu, logvar = netG.encode(fake_images)
+        kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+
+    # * Generate fake images:
+    fake_images = []
+    for i in range(0, num_samples, batch_size):
+        with torch.no_grad():
+            batch_z = z[i:i+batch_size]
+            batch_images = netG.generate_from_z(batch_z).cpu()
+        fake_images.append(batch_images)
+    fake_images = torch.cat(fake_images, dim=0)
+
+    # * Compute Inception Score:
+    fake_scores = inception_model(fake_images)[0]
+    scores = F.softmax(fake_scores, dim=1).data.cpu().numpy()
+    scores = np.mean(scores, axis=0)
+    kl_score = np.exp(kl_loss.data.cpu().numpy())
+
+    return np.sum(scores * np.log(scores / kl_score))

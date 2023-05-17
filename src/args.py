@@ -12,9 +12,9 @@ def get_all_args():
 
 
 def print_args(args):
-    print("__" * 80)
-    print(f"ARGUMENTS: \n{dumps(vars(args), indent=4, sort_keys=True)}")
-    print("__" * 80)
+    print("__"*80)
+    print(f'ARGUMENTS: \n{dumps(vars(args), indent=4, sort_keys=True)}')
+    print("__"*80)
 
 
 def parse_args(parser):
@@ -68,12 +68,15 @@ def add_train_args(parser):
         default="../old_outputs/output_0/model/netG_epoch_120.pth",
         help="Stage 1 Generator model path for Stage 2 training",
     )
-    parser.add_argument("--train_bs", type=int, default=2, help="train batch size")
-    parser.add_argument("--test_bs", type=int, default=1, help="test batch size")
+    parser.add_argument("--train_bs", type=int, default=2,
+                        help="train batch size")
+    parser.add_argument("--test_bs", type=int, default=1,
+                        help="test batch size")
     parser.add_argument(
         "--train_workers", type=int, default=1, help="train num_workers"
     )
-    parser.add_argument("--test_workers", type=int, default=1, help="test num_workers")
+    parser.add_argument("--test_workers", type=int,
+                        default=1, help="test num_workers")
     parser.add_argument(
         "--TRAIN_GEN_LR", type=float, default=2e-4, help="train generator learning rate"
     )
@@ -96,37 +99,46 @@ def add_train_args(parser):
         "--TRAIN_COEFF_KL", type=float, default=2.0, help="train coefficient KL"
     )
     parser.add_argument(
+        "--NUM_GENERATE", type=int, default=10, help="number of sets of fake images"
+    )
+    parser.add_argument(
+        "--BATCH_SIZE", type=int, default=64, help="batch size used for generating fake images"
+    )
+    parser.add_argument(
+        "--IS_NUM_SAMPLES", type=int, default=10000, help="batch size used for generating fake images"
+    )
+    parser.add_argument(
         "--dataset_name", type=str, default="birds", help="birds/flowers: dataset name"
     )
     parser.add_argument(
         "--embedding_type",
         type=str,
         default="roberta",
-        help="roberta/cnn-rnn: embedding type",
+        help="roberta/cnn-rnn: embedding type"
     )
     parser.add_argument(
         "--datapath",
         type=str,
-        default="/gdrive/MyDrive/ganctober_training/output",
-        help="datapath dir",
+        default="../output",
+        help="datapath dir"
     )
     parser.add_argument(
         "--image_save_dir",
         type=str,
-        default="/gdrive/MyDrive/ganctober_training/output/image/",
-        help="Image save dir",
+        default="../output/image",
+        help="Image save dir"
     )
     parser.add_argument(
         "--model_dir",
         type=str,
-        default="/gdrive/MyDrive/ganctober_training/output/model/",
-        help="Model save dir",
+        default="../output/model",
+        help="Model save dir"
     )
     parser.add_argument(
         "--log_dir",
         type=str,
-        default="/gdrive/MyDrive/ganctober_training/output/log/",
-        help="Log dir for wandb",
+        default="../output/log",
+        help="Log dir for wandb"
     )
     parser.add_argument("--VIS_COUNT", type=int, default=64, help="")
     parser.add_argument(
@@ -135,8 +147,8 @@ def add_train_args(parser):
     parser.add_argument(
         "--device",
         type=str,
-        default="cpu",  #! CHANGE THIS TO CUDA BEFORE TRAINING
-        help="Device type: cuda/cpu",
+        default="cpu",  # ! CHANGE THIS TO CUDA BEFORE TRAINING
+        help="Device type: cuda/cpu"
     )
 
 
@@ -158,33 +170,33 @@ def add_model_args(parser):
 
 def add_data_args(parser):
     """Get all data paths"""
-    ###* Directories:
+    # * Directories:
     parser.add_argument(
         "--annotations_dir",
         type=str,
         default="../input/data/birds/text_c10/",
-        help="Annotations dir path",
+        help="Annotations dir path"
     )
     parser.add_argument(
         "--roberta_annotations_dir",
         type=str,
         default="../input/data/birds/embeddings/",
-        help="Annotations RoBERTa embeddings dir path",
+        help="Annotations RoBERTa embeddings dir path"
     )
     parser.add_argument(
         "--roberta_path",
         type=str,
         default="../input/data/roberta_base/",
-        help="RoBERTa model dir path",
+        help="RoBERTa model dir path"
     )
     parser.add_argument(
         "--images_dir",
         type=str,
         default="../input/data/CUB_200_2011/images/",
-        help="Images dir path",
+        help="Images dir path"
     )
 
-    ###* Files:
+    # * Files:
     add_birds_file_args(parser)
     add_cub_file_args(parser)
 

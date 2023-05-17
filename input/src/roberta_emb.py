@@ -3,6 +3,8 @@ Generates roberta embeddings from annotations.
 
 """
 
+from tqdm import tqdm
+from transformers import AutoTokenizer, RobertaForMaskedLM
 import config
 
 import os
@@ -14,27 +16,18 @@ logging.basicConfig(level=logging.ERROR)
 
 # from transformers import BertTokenizer, BertModel
 # from transformers import AutoTokenizer, AutoModelForMaskedLM
-from transformers import AutoTokenizer, RobertaForMaskedLM
-from tqdm import tqdm
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 print("__" * 80)
 print("Imports finished.")
-print("Loading BERT Tokenizer and model...")
+print("Loading RoBERTa Tokenizer and model...")
 ###############################################################################################
-# tokenizer = BertTokenizer.from_pretrained(config.BERT_PATH, do_lower_case=True)
-# model = BertModel.from_pretrained(
-#     config.BERT_PATH, output_hidden_states=True).to(config.DEVICE)
 
-# tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased", do_lower_case=True)
-# model = AutoModelForMaskedLM.from_pretrained(
-#     "bert-base-uncased", output_hidden_states=True
-# ).to(config.DEVICE)
-# model.eval()
 
 tokenizer = AutoTokenizer.from_pretrained("roberta-base", do_lower_case=True)
-model = RobertaForMaskedLM.from_pretrained('roberta-base', output_hidden_states=True).to(config.DEVICE)
+model = RobertaForMaskedLM.from_pretrained(
+    'roberta-base', output_hidden_states=True).to(config.DEVICE)
 model.eval()
 
 ###############################################################################################
@@ -46,7 +39,7 @@ def sent_emb(sent):
         encoded_dict = tokenizer.encode_plus(
             sent,
             add_special_tokens=True,
-            max_length=128, # This is changed.
+            max_length=128,  # This is changed.
             padding=True,
             return_attention_mask=True,
             return_tensors="pt",
@@ -57,12 +50,13 @@ def sent_emb(sent):
         attention_masks = encoded_dict["attention_mask"]
         # FOR ROBERTA EMBEDDING
         with torch.no_grad():
-            ### token embeddings:
-            outputs = model(encoded_dict['input_ids'].to(config.DEVICE), encoded_dict['attention_mask'].to(config.DEVICE))
+            # token embeddings:
+            outputs = model(encoded_dict['input_ids'].to(
+                config.DEVICE), encoded_dict['attention_mask'].to(config.DEVICE))
             hidden_states = outputs[1]
             token_embeddings = torch.stack(hidden_states, dim=0)
 
-            ### sentence embeddings:
+            # sentence embeddings:
             token_vecs = hidden_states[-2][0]
             sentence_embedding = torch.mean(token_vecs, dim=0)
             sentence_embedding = sentence_embedding.view(1, -1)
@@ -88,7 +82,8 @@ def max_len():
                 .split("\n")[:-1]
             )
             for annotation in text:
-                input_ids = tokenizer.encode(annotation, add_special_tokens=True)
+                input_ids = tokenizer.encode(
+                    annotation, add_special_tokens=True)
                 r = len(input_ids)
                 max_len = max(max_len, r)
                 emb_lens.append(r)
@@ -114,25 +109,28 @@ def generate_text_embs():
         ):
             make_dir(os.path.join(config.ANNOTATION_EMB, bird_type))
             for file in sorted(os.listdir(os.path.join(config.ANNOTATIONS, bird_type))):
-                make_dir(
-                    os.path.join(
-                        config.ANNOTATION_EMB, bird_type, file.replace(".txt", "")
-                    )
-                )
-                text = open(os.path.join(config.ANNOTATIONS, bird_type, file), "r").read().splitlines()
-                
-                print(f'TEXT HERE BITCH: {text}')
-                for annotation_id, annotation in enumerate(text):
-                    emb = sent_emb(annotation)
-                    torch.save(
-                        emb,
-                        os.path.join(
-                            config.ANNOTATION_EMB,
-                            bird_type,
-                            file.replace(".txt", ""),
-                            str(annotation_id) + ".pt",
-                        ),
-                    )
+                embedded_folder = os.path.join(
+                    config.ANNOTATION_EMB, bird_type, file.replace(".txt", ""))
+                # just in case if I interrupt the process of embedding so i dont have to start from the beginning
+                if not os.path.exists(embedded_folder):
+                    make_dir(embedded_folder)
+                    text = open(os.path.join(config.ANNOTATIONS,
+                                bird_type, file), "r").read().splitlines()
+
+                    print(f'TEXT HERE: {text}')
+                    for annotation_id, annotation in enumerate(text):
+                        emb = sent_emb(annotation)
+                        torch.save(
+                            emb,
+                            os.path.join(
+                                config.ANNOTATION_EMB,
+                                bird_type,
+                                file.replace(".txt", ""),
+                                str(annotation_id) + ".pt",
+                            ),
+                        )
+                else:
+                    print(f'Already embedded {bird_type}')
     except Exception as e:
         print(f"Error in {bird_type}/{file}")
         print(e)

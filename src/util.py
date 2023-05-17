@@ -11,7 +11,8 @@ import torchvision.utils as vutils
 from json import dumps
 print("__"*80)
 
-#TODO fetch saved generated images during training and their corresponding annotations
+# TODO fetch saved generated images during training and their corresponding annotations
+
 
 def save_img_results(data_img, fake, epoch, args):
     num = args.VIS_COUNT
@@ -19,15 +20,22 @@ def save_img_results(data_img, fake, epoch, args):
     # data_img is changed to [0, 1]
     if data_img is not None:
         data_img = data_img[0:num]
-        vutils.save_image(data_img, os.path.join(args.image_save_dir, "real_samples.png"), normalize=True)
+        vutils.save_image(data_img, os.path.join(
+            args.image_save_dir, "real_samples.png"), normalize=True)
         # fake data is stil [-1, 1]
-        vutils.save_image(fake.data, os.path.join(args.image_save_dir, f"fake_samples_epoch_{epoch:04}.png"), normalize=True)
+        vutils.save_image(fake.data, os.path.join(
+            args.image_save_dir, f"fake_samples_epoch_{epoch:04}.png"), normalize=True)
     else:
-        vutils.save_image(fake.data, os.path.join(args.image_save_dir, f"lr_fake_samples_epoch_{epoch:04}.png"), normalize=True)
+        vutils.save_image(fake.data, os.path.join(
+            args.image_save_dir, f"lr_fake_samples_epoch_{epoch:04}.png"), normalize=True)
+
 
 def save_model(netG, netD, epoch, args):
-    torch.save(netG.state_dict(), os.path.join(args.model_dir, f"netG_epoch_{epoch}.pth"))
-    torch.save(netD.state_dict(), os.path.join(args.model_dir, f"netD_epoch_{epoch}.pth")) #? implementation has saved just the last disc? decision?
+    torch.save(netG.state_dict(), os.path.join(
+        args.model_dir, f"netG_epoch_{epoch}.pth"))
+    # implementation has saved just the last disc decision
+    torch.save(netD.state_dict(), os.path.join(
+        args.model_dir, f"netD_epoch_{epoch}.pth"))
     print("Save G/D models")
 
 
@@ -43,6 +51,7 @@ def check_dataset(training_set):
     plt.imshow(i)
     plt.show()
     print("__"*80)
+
 
 def check_args():
     """
@@ -62,16 +71,19 @@ def check_args():
     print("To fetch images, text embeddings, bert embeddings:")
     df_train_filenames = pd.read_pickle(data_args.train_filenames)
     # print(df_train_filenames[0])  # List[str] : len train -> 8855, len test -> 2933
-    image_path = os.path.join(data_args.images_dir, df_train_filenames[0] + ".jpg")
-    text_path = os.path.join(data_args.annotations_dir, df_train_filenames[0] + ".txt")
-    roberta_path = os.path.join(data_args.roberta_annotations_dir, df_train_filenames[0], "0.pt")
-
+    image_path = os.path.join(data_args.images_dir,
+                              df_train_filenames[0] + ".jpg")
+    text_path = os.path.join(data_args.annotations_dir,
+                             df_train_filenames[0] + ".txt")
+    roberta_path = os.path.join(
+        data_args.roberta_annotations_dir, df_train_filenames[0], "0.pt")
 
     print("\nBird type: ")
     print(df_train_filenames[0].split("/")[0])
 
     print("\nAnnotations of the bird image: \n")
-    [print(f"{idx}: {ele}") for idx, ele in enumerate(open(text_path).read().split("\n")[:-1])]
+    [print(f"{idx}: {ele}") for idx, ele in enumerate(
+        open(text_path).read().split("\n")[:-1])]
 
     print("\nShape of RoBERTa embedding of annotation no 0:")
     emb = torch.load(roberta_path)
@@ -80,8 +92,6 @@ def check_args():
     img = plt.imread(image_path)
     plt.imshow(img)
     plt.show()
-
-
 
 
 if __name__ == "__main__":

@@ -1,7 +1,6 @@
 # CUB dataset class
 import args
 
-import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -118,17 +117,17 @@ if __name__ == "__main__":
     train_filenames = data_args.train_filenames
     test_filenames = data_args.test_filenames
 
-    roberta_embed = False
+    roberta_embed = True
 
     if roberta_embed:
-        ###* RoBERTa embeddings dataset:
+        # * RoBERTa embeddings dataset:
         dataset_test = CUBDataset(
             train_filenames,
             data_args.images_dir,
             roberta_emb=data_args.roberta_annotations_dir,
         )
     else:
-        ###* cnn-rnn embeddings dataset:
+        # * cnn-rnn embeddings dataset:
         # cnn_embeddings = np.array(pickle.load(open(data_args.cnn_annotations_emb_train, "rb"), encoding='latin1'))
         dataset_test = CUBDataset(
             train_filenames,

@@ -17,7 +17,6 @@ import numpy as np
 import pandas as pd
 import torch
 import torchfile
-import wandb
 from PIL import Image
 from sklearn import metrics, model_selection
 from torch.autograd import Variable
@@ -29,15 +28,16 @@ import engine
 import util
 from layers import (Stage1Discriminator, Stage1Generator, Stage2Discriminator,
                     Stage2Generator)
+# from engine import fid
 
-wandb.init(project='StackGAN-RoBERTa', sync_tensorboard=True, log_dir=arg.log_dir)
+data_args = args.get_all_args()
 
 print("__"*80)
 print("Imports Done...")
 
 
-def load_stage1(args) -> Tuple[Stage1Generator, Stage1Discriminator]:
-    #* Init models and weights:
+def load_stage1(args):
+    # * Init models and weights:
     from layers import Stage1Discriminator, Stage1Generator
     if args.embedding_type == "roberta":
         netG = Stage1Generator(emb_dim=768)
@@ -49,7 +49,7 @@ def load_stage1(args) -> Tuple[Stage1Generator, Stage1Discriminator]:
     netG.apply(engine.weights_init)
     netD.apply(engine.weights_init)
 
-    #* Load saved model:
+    # * Load saved model:
     if args.NET_G_path != "":
         netG.load_state_dict(torch.load(args.NET_G_path))
         print("__"*80)
@@ -61,13 +61,13 @@ def load_stage1(args) -> Tuple[Stage1Generator, Stage1Discriminator]:
         print("Discriminator loaded from: ", args.NET_D_path)
         print("__"*80)
 
-    #* Load on device:
+    # * Load on device:
     if args.device == "cuda":
         netG.cuda()
         netD.cuda()
     else:
-        netG()
-        netD()
+        netG.cpu()
+        netD.cpu()
 
     print("__"*80)
     print("GENERATOR:")
@@ -80,8 +80,8 @@ def load_stage1(args) -> Tuple[Stage1Generator, Stage1Discriminator]:
     return netG, netD
 
 
-def load_stage2(args) -> Tuple[Stage2Generator, Stage2Discriminator]:
-    #* Init models and weights:
+def load_stage2(args):
+    # * Init models and weights:
     from layers import Stage1Generator, Stage2Discriminator, Stage2Generator
     if args.embedding_type == "roberta":
         Stage1_G = Stage1Generator(emb_dim=768)
@@ -94,7 +94,7 @@ def load_stage2(args) -> Tuple[Stage2Generator, Stage2Discriminator]:
     netG.apply(engine.weights_init)
     netD.apply(engine.weights_init)
 
-    #* Load saved model:
+    # * Load saved model:
     if args.NET_G_path != "":
         netG.load_state_dict(torch.load(args.NET_G_path))
         print("Generator loaded from: ", args.NET_G_path)
@@ -104,18 +104,18 @@ def load_stage2(args) -> Tuple[Stage2Generator, Stage2Discriminator]:
     else:
         print("Please give the Stage 1 generator path")
         return
-    
+
     if args.NET_D_path != "":
         netD.load_state_dict(torch.load(args.NET_D_path))
         print("Discriminator loaded from: ", args.NET_D_path)
 
-    #* Load on device:
+    # * Load on device:
     if args.device == "cuda":
         netG.cuda()
         netD.cuda()
     else:
-        netG()
-        netD()
+        netG.cpu()
+        netD.cpu()
 
     print("__"*80)
     print(netG)
@@ -143,7 +143,8 @@ def run(args):
     batch_size = args.train_bs
     noise = Variable(torch.FloatTensor(batch_size, nz)).to(device)
     with torch.no_grad():
-        fixed_noise = Variable(torch.FloatTensor(batch_size, nz).normal_(0, 1)).to(device) # volatile=True
+        fixed_noise = Variable(torch.FloatTensor(
+            batch_size, nz).normal_(0, 1)).to(device)  # volatile=True
     real_labels = Variable(torch.FloatTensor(batch_size).fill_(1)).to(device)
     fake_labels = Variable(torch.FloatTensor(batch_size).fill_(0)).to(device)
 
@@ -152,27 +153,34 @@ def run(args):
 
     lr_decay_step = args.TRAIN_LR_DECAY_EPOCH
 
-    optimizerD = torch.optim.Adam(netD.parameters(), lr=args.TRAIN_DISC_LR, betas=(0.5, 0.999))
+    optimizerD = torch.optim.Adam(
+        netD.parameters(), lr=args.TRAIN_DISC_LR, betas=(0.5, 0.999))
 
     netG_para = []
     for p in netG.parameters():
         if p.requires_grad:
             netG_para.append(p)
-    optimizerG = torch.optim.Adam(netG_para, lr=args.TRAIN_GEN_LR, betas=(0.5, 0.999))
+    optimizerG = torch.optim.Adam(
+        netG_para, lr=args.TRAIN_GEN_LR, betas=(0.5, 0.999))
 
     count = 0
 
     if args.embedding_type == "roberta":
-        training_set = dataset.CUBDataset(pickl_file=args.train_filenames, img_dir=args.images_dir, roberta_emb=args.roberta_annotations_dir, stage=args.STAGE)
-        testing_set = dataset.CUBDataset(pickl_file=args.test_filenames, img_dir=args.images_dir, roberta_emb=args.roberta_annotations_dir, stage=args.STAGE)
+        training_set = dataset.CUBDataset(pickl_file=args.train_filenames, img_dir=args.images_dir,
+                                          roberta_emb=args.roberta_annotations_dir, stage=args.STAGE)
+        testing_set = dataset.CUBDataset(pickl_file=args.test_filenames, img_dir=args.images_dir,
+                                         roberta_emb=args.roberta_annotations_dir, stage=args.STAGE)
     else:
-        training_set = dataset.CUBDataset(pickl_file=args.train_filenames, img_dir=args.images_dir, cnn_emb=args.cnn_annotations_emb_train, stage=args.STAGE)
-        testing_set = dataset.CUBDataset(pickl_file=args.test_filenames, img_dir=args.images_dir, cnn_emb=args.cnn_annotations_emb_test, stage=args.STAGE)
-    train_data_loader = torch.utils.data.DataLoader(training_set, batch_size=args.train_bs, num_workers=args.train_workers)
-    test_data_loader = torch.utils.data.DataLoader(testing_set, batch_size=args.test_bs, num_workers=args.test_workers)
+        training_set = dataset.CUBDataset(
+            pickl_file=args.train_filenames, img_dir=args.images_dir, cnn_emb=args.cnn_annotations_emb_train, stage=args.STAGE)
+        testing_set = dataset.CUBDataset(
+            pickl_file=args.test_filenames, img_dir=args.images_dir, cnn_emb=args.cnn_annotations_emb_test, stage=args.STAGE)
+    train_data_loader = torch.utils.data.DataLoader(
+        training_set, batch_size=args.train_bs, num_workers=args.train_workers)
+    test_data_loader = torch.utils.data.DataLoader(
+        testing_set, batch_size=args.test_bs, num_workers=args.test_workers)
     # util.check_dataset(training_set)
     # util.check_dataset(testing_set)
-
 
     # best_accuracy = 0
 
@@ -191,22 +199,34 @@ def run(args):
             disc_lr *= 0.5
             for param_group in optimizerD.param_groups:
                 param_group["lr"] = disc_lr
-        
+
         errD, errD_real, errD_wrong, errD_fake, errG, kl_loss, count = engine.train_new_fn(
-            train_data_loader, args, netG, netD, real_labels, fake_labels, 
+            train_data_loader, args, netG, netD, real_labels, fake_labels,
             noise, fixed_noise,  optimizerD, optimizerG, epoch, count)
-        
+
         end_t = time.time()
         
+
         print(f"[{epoch}/{args.TRAIN_MAX_EPOCH}] Loss_D: {errD:.4f}, Loss_G: {errG:.4f}, Loss_KL: {kl_loss:.4f}, Loss_real: {errD_real:.4f}, Loss_wrong: {errD_wrong:.4f}, Loss_fake: {errD_fake:.4f}, Total Time: {end_t-start_t :.2f} sec")
         if epoch % args.TRAIN_SNAPSHOT_INTERVAL == 0 or epoch == 1:
             util.save_model(netG, netD, epoch, args)
-    
-    util.save_model(netG, netD, args.TRAIN_MAX_EPOCH, args)
-    summary_writer.close()
-    wandb.finish()
 
- 
+    # # Generate fake images and calculate FID
+    # with torch.no_grad():
+    #     fake_images = []
+    #     for i in range(args.NUM_GENERATE):
+    #         noise = torch.randn(args.FID_BATCH_SIZE, args.n_z, device=device)
+    #         fake_images.append(netG(noise))
+            
+    #     fake_images = torch.cat(fake_images, dim=0)
+    #     fid_score = fid(real_images, fake_images, args)
+        
+    # wandb.log({'FID': fid_score})
+    # print(f"FID: {fid_score}")
+
+    util.save_model(netG, netD, args.TRAIN_MAX_EPOCH, args)
+
+
 def sample(args, datapath):
     if args.STAGE == 1:
         netG, _ = load_stage1(args)
@@ -214,7 +234,7 @@ def sample(args, datapath):
         netG, _ = load_stage2(args)
     netG.eval()
 
-    ###* Load text embeddings generated from the encoder:
+    # * Load text embeddings generated from the encoder:
     t_file = torchfile.load(datapath)
     captions_list = t_file.raw_txt
     embeddings = np.concatenate(t_file.fea_txt, axis=0)
@@ -223,7 +243,7 @@ def sample(args, datapath):
     print(f"Total number of sentences: {num_embeddings}")
     print(f"Num embeddings: {num_embeddings} {embeddings.shape}")
 
-    ###* Path to save generated samples:
+    # * Path to save generated samples:
     save_dir = args.NET_G[:args.NET_G.find(".pth")]
     util.make_dir(save_dir)
 
@@ -244,11 +264,11 @@ def sample(args, datapath):
         text_embedding = Variable(torch.FloatTensor(embeddings_batch))
         text_embedding = text_embedding.to(args.device)
 
-        ###* Generate fake images:
+        # * Generate fake images:
         noise.data.normal_(0, 1)
         _, fake_imgs, mu, logvar = netG(text_embedding, noise)
         for i in range(batch_size):
-            save_name = f"{save_dir}/{count+i}.png"  
+            save_name = f"{save_dir}/{count+i}.png"
             im = fake_imgs[i].data.cpu().numpy()
             im = (im + 1.0) * 127.5
             im = im.astype(np.uint8)
@@ -258,7 +278,8 @@ def sample(args, datapath):
             im = Image.fromarray(im)
             im.save(save_name)
         count += batch_size
-    
+
+
 if __name__ == "__main__":
     args_ = args.get_all_args()
     args.print_args(args_)

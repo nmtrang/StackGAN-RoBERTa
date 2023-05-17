@@ -7,7 +7,9 @@ import torch.nn as nn
 
 from torch.autograd import Variable
 
-__all__ = ['Stage1Generator', 'Stage1Discriminator', 'Stage2Generator', 'Stage2Discriminator']
+__all__ = ['Stage1Generator', 'Stage1Discriminator',
+           'Stage2Generator', 'Stage2Discriminator']
+
 
 def conv3x3(in_channels, out_channels):
     """3x3 conv with same padding"""
@@ -62,7 +64,7 @@ class CAug(nn.Module):
     Takes input as roberta embeddings of annotations and sends output to Stage 1 and 2 generators.
     """
 
-    def __init__(self, emb_dim=768, n_g=128, device="cpu"):  #! CHANGE THIS TO CUDA
+    def __init__(self, emb_dim=768, n_g=128, device="cpu"):  # ! CHANGE THIS TO CUDA
         """
         @param emb_dim (int)            : Size of annotation embeddings.
         @param n_g      (int)           : Dimension of mu, epsilon and c_0_hat
@@ -85,9 +87,9 @@ class CAug(nn.Module):
         enc = self.relu(self.fc(text_emb)).squeeze(1)  # (batch, n_g*2)
 
         mu = enc[:, : self.n_g]  # (batch, n_g)
-        logvar = enc[:, self.n_g :]  # (batch, n_g)
+        logvar = enc[:, self.n_g:]  # (batch, n_g)
 
-        sigma = (logvar * 0.5).exp_()  
+        sigma = (logvar * 0.5).exp_()
         # exp(logvar * 0.5) = exp(log(var^0.5)) = sqrt(var) = std
 
         epsilon = Variable(torch.FloatTensor(sigma.size()).normal_())
@@ -139,7 +141,7 @@ class Stage1Generator(nn.Module):
         # -> (batch, 3, 64, 64)
         self.img = nn.Sequential(conv3x3(self.inp_ch // 16, 3), nn.Tanh())
 
-    def forward(self, text_emb, noise) -> torch.sensor:
+    def forward(self, text_emb, noise):
         """
         @param   c_0_hat (torch.tensor) : Output of Conditional Augmentation (batch, n_g)
         @returns out     (torch.tensor) : Generator 1 image output           (batch, 3, 64, 64)
@@ -161,8 +163,13 @@ class Stage1Generator(nn.Module):
         inp = self.up4(inp)  # (batch, 64, 64, 64)
 
         fake_img = self.img(inp)  # (batch, 3, 64, 64)
+        self.fake_img = fake_img
+        
         return None, fake_img, mu, logvar
     
+    # @property
+    # def fake_img(self):
+    #     return self._fake_img
 
 
 class Stage1Discriminator(nn.Module):
@@ -208,7 +215,8 @@ class Stage1Discriminator(nn.Module):
         # text emb
         compressed = self.fc_for_text(text_emb)
         compressed = (
-            compressed.unsqueeze(2).unsqueeze(3).repeat(1, 1, self.m_d, self.m_d)
+            compressed.unsqueeze(2).unsqueeze(
+                3).repeat(1, 1, self.m_d, self.m_d)
         )
 
         con = torch.cat((enc, compressed), dim=1)
@@ -365,7 +373,8 @@ class Stage2Discriminator(nn.Module):
         # text emb
         compressed = self.fc_for_text(text_emb)
         compressed = (
-            compressed.unsqueeze(2).unsqueeze(3).repeat(1, 1, self.m_d, self.m_d)
+            compressed.unsqueeze(2).unsqueeze(
+                3).repeat(1, 1, self.m_d, self.m_d)
         )
 
         con = torch.cat((enc, compressed), dim=1)
@@ -380,7 +389,7 @@ class Stage2Discriminator(nn.Module):
 if __name__ == "__main__":
     batch_size = 2
     n_z = 100
-    emb_dim = 1024  # 768
+    emb_dim = 768  # 768
     emb = torch.randn((batch_size, emb_dim))
     noise = torch.empty((batch_size, n_z)).normal_()
 
@@ -401,7 +410,8 @@ if __name__ == "__main__":
     print()
 
     _, gen2, _, _ = generator2(emb, noise)
-    print("output2 image dimensions :", gen2.size())  # (batch_size, 3, 256, 256)
+    # (batch_size, 3, 256, 256)
+    print("output2 image dimensions :", gen2.size())
     assert gen2.shape == (batch_size, 3, 256, 256)
     print()
 
@@ -415,7 +425,7 @@ if __name__ == "__main__":
     print("Conditional Aug output size: ", out_ca.size())  # (batch_size, 128)
     assert out_ca.shape == (batch_size, 128)
 
-    ###* Checking init weights
+    # * Checking init weights
     # import engine
     # netG = Stage1Generator()
     # netG.apply(engine.weights_init)
