@@ -2,24 +2,25 @@
 
 """
 import numpy as np
+import scipy
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+import torchvision
 import torchvision.transforms as transforms
-import wandb
-from pytorch_fid import fid_score
+from ignite.metrics import FID, InceptionScore
+from scipy import linalg
+from scipy.linalg import sqrtm
 from scipy.stats import entropy
 from torch.utils.data import DataLoader
 from torchvision.datasets import ImageFolder
 from torchvision.models import inception_v3
-from pytorch_lightning.callbacks import ModelCheckpoint
 from tqdm import tqdm
 
 import args
 import util
 
 data_args = args.get_all_args()
-wandb.init(project='StackGAN-RoBERTa', notes='This is training stage 1',
-           tags=['stage1', 'roberta'], dir=data_args.log_dir, resume=True)
 
 
 def KL_loss(mu, logvar):
@@ -30,6 +31,7 @@ def KL_loss(mu, logvar):
 
 
 def disc_loss(disc, real_imgs, fake_imgs, real_labels, fake_labels, conditional_vector):
+
     loss_fn = nn.BCELoss()
     batch_size = real_imgs.shape[0]
     cond = conditional_vector.detach()
@@ -39,6 +41,7 @@ def disc_loss(disc, real_imgs, fake_imgs, real_labels, fake_labels, conditional_
     fake_loss = loss_fn(disc(cond, fake_imgs), fake_labels)
     wrong_loss = loss_fn(disc(cond[1:], real_imgs[:-1]), fake_labels[1:])
     loss = real_loss + (fake_loss + wrong_loss) * 0.5
+
     return loss, real_loss, wrong_loss, fake_loss
 
 
@@ -47,22 +50,6 @@ def gen_loss(disc, fake_imgs, real_labels, conditional_vector):
     cond = conditional_vector.detach()
     fake_loss = loss_fn(disc(cond, fake_imgs), real_labels)
     return fake_loss
-
-
-def extract_features(images):
-    """
-    Extracts features from images using the Inception model.
-    """
-    # Normalize the images to the expected range for the Inception model
-    images = (images + 1) / 2
-    images = images.clamp(0, 1)
-    images = torchvision.transforms.Resize((299, 299))(images)
-
-    # Pass the images through the Inception model
-    with torch.no_grad():
-        features = inception_model(images).detach().cpu().numpy()
-
-    return features
 
 
 def weights_init(m):
@@ -93,14 +80,13 @@ def train_new_fn(
     count
 ):
     errD_, errD_real_, errD_wrong_, errD_fake_, errG_, kl_loss_ = 0, 0, 0, 0, 0, 0
-    wandb.watch(netG)
-    wandb.watch(netD)
     real_images_all, fake_images_all = [], []
     for batch_id, data in tqdm(
         enumerate(data_loader),
         total=len(data_loader),
         desc=f"Train Epoch {epoch}/{args.TRAIN_MAX_EPOCH}",
     ):
+        # print(f'Loading {batch_id}: {data}')
         # * Prepare training data:
         text_emb, real_images = data
         text_emb = text_emb.to(args.device)
@@ -109,6 +95,12 @@ def train_new_fn(
         # * Generate fake images:
         noise.data.normal_(0, 1)
         _, fake_images, mu, logvar = netG(text_emb, noise)
+
+        # * Resize real & fake images to 2x2 kernel size:
+        real_images_resized = F.interpolate(real_images, size=(
+            299, 299), mode='bilinear', align_corners=True)
+        fake_images_resized = F.interpolate(fake_images, size=(
+            299, 299), mode='bilinear', align_corners=True)
 
         # * Update D network:
         netD.zero_grad()
@@ -128,30 +120,30 @@ def train_new_fn(
 
         count += 1
 
-        if batch_id % 10 == 0:
+        if batch_id % 100 == 0:
+            fid_score = 0
+            is_score = 0
+            try:
+                print('Calculating FID and IS...')
+                fid_score, is_score = calculate_fid_and_is(
+                    real_images_resized, fake_images_resized)
+                print('Finally!!! Succeed calculating FID and IS...')
+            except Exception as e:
+                print(e)
+                print('Failed to calculate FID and IS...')
+            print(
+                f"[Stage 1] Epoch {epoch}: FID={fid_score:.2f}, IS_score={is_score:.2f}")
             loss_metrics = {"D_loss": errD.data,
                             "D_loss_real": errD_real.data,
                             "D_loss_wrong": errD_wrong.data,
                             "D_loss_fake": errD_fake.data,
                             "G_loss": errG.data,
-                            "KL_loss": kl_loss.data}
-
-            wandb.log(loss_metrics, step=count)
+                            "KL_loss": kl_loss.data,
+                            "Inception_score": is_score,
+                            "FID": fid_score}
 
             # * save the image result for each epoch:
             lr_fake, fake, _, _ = netG(text_emb, fixed_noise)
-            try:
-                fid = calculate_fid(real_images, fake, args)
-                wandb.log({"FID": fid})
-            except:
-                pass
-
-            try:
-                inception_score = calculate_inception_score(
-                    netG, args.IS_NUM_SAMPLES, args.BATCH_SIZE, args.device, kl_loss.data)
-                wandb.log({"Inception Score": inception_score})
-            except:
-                pass
 
             util.save_img_results(real_images, fake, epoch, args)
             if lr_fake is not None:
@@ -171,72 +163,48 @@ def train_new_fn(
     errG_ /= len(data_loader)
     kl_loss_ /= len(data_loader)
 
-    return errD_, errD_real_, errD_wrong_, errD_fake_, errG_, kl_loss_, count
+    return errD_, errD_real_, errD_wrong_, errD_fake_, errG_, kl_loss_, count, loss_metrics
 
 
-def calculate_fid(real_images, fake_images, args):
-    # Resize images to 2048x2048 if necessary
-    if args.image_size < 2048:
-        real_images = torch.nn.functional.interpolate(
-            real_images, size=(2048, 2048), mode='bilinear', align_corners=False)
-        fake_images = torch.nn.functional.interpolate(
-            fake_images, size=(2048, 2048), mode='bilinear', align_corners=False)
+def eval_fn(data_loader, model, device, epoch):
+    model.eval()
+    fin_y = []
+    fin_outputs = []
+    LOSS = 0.
 
-    # Calculate FID score using pytorch-fid
-    fid = fid_score.calculate_fid_given_tensors(
-        real_images, fake_images, args.device, args.FID_BATCH_SIZE)
+    with torch.no_grad():
+        for batch_id, data in tqdm(enumerate(data_loader), total=len(data_loader)):
+            text_embs, images = data
 
-    return fid
+            # Loading it to device
+            text_embs = text_embs.to(device, dtype=torch.float)
+            images = images.to(device, dtype=torch.float)
+
+            # getting outputs from model and calculating loss
+            outputs = model(text_embs, images)
+            loss = loss_fn(outputs, images)  # TODO figure this out
+            LOSS += loss
+
+            # for calculating accuracy and other metrics # TODO figure this out
+            fin_y.extend(images.view(-1, 1).cpu().detach().numpy().tolist())
+            fin_outputs.extend(torch.sigmoid(
+                outputs).cpu().detach().numpy().tolist())
+
+    LOSS /= len(data_loader)
+    return fin_outputs, fin_y, LOSS
 
 
-def calculate_inception_score(netG, num_samples, batch_size, device, kl_loss=None):
-    """Calculate the Inception Score for a generator network.
+def calculate_fid_and_is(real_images, fake_images, num_images=1000, z_dim=100, device='cuda'):
+    # model = inception_v3(pretrained=True, transform_input=False)
+    # model.eval()
+    # define fid and is metric
+    fid_metric = FID(device=device)
+    is_metric = InceptionScore(device=device)
 
-    Args:
-        netG (nn.Module): The generator network.
-        num_samples (int): The number of fake images to generate.
-        batch_size (int): The batch size to use for generating the images.
-        device (str): The device to use for computation.
-        kl_loss (float, optional): The pre-computed KL loss. Defaults to None.
+    fid_metric.update((real_images, fake_images))
+    is_metric.update(fake_images)
+    # calculate FID and IS between generated images and real images
+    fid_score = fid_metric.compute()
+    is_score = is_metric.compute()
 
-    Returns:
-        float: The Inception Score.
-    """
-    netG.eval()
-    inception_model = inception_v3(
-        pretrained=True, transform_input=False).to(device)
-    inception_model.eval()
-
-    if kl_loss is None:
-        # * Generate latent vectors:
-        z = torch.randn(num_samples, netG.z_dim, device=device)
-
-        # * Generate fake images:
-        fake_images = []
-        for i in range(0, num_samples, batch_size):
-            with torch.no_grad():
-                batch_z = z[i:i+batch_size]
-                batch_images = netG.generate_from_z(batch_z).cpu()
-            fake_images.append(batch_images)
-        fake_images = torch.cat(fake_images, dim=0)
-
-        # * Calculate KL divergence:
-        mu, logvar = netG.encode(fake_images)
-        kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
-
-    # * Generate fake images:
-    fake_images = []
-    for i in range(0, num_samples, batch_size):
-        with torch.no_grad():
-            batch_z = z[i:i+batch_size]
-            batch_images = netG.generate_from_z(batch_z).cpu()
-        fake_images.append(batch_images)
-    fake_images = torch.cat(fake_images, dim=0)
-
-    # * Compute Inception Score:
-    fake_scores = inception_model(fake_images)[0]
-    scores = F.softmax(fake_scores, dim=1).data.cpu().numpy()
-    scores = np.mean(scores, axis=0)
-    kl_score = np.exp(kl_loss.data.cpu().numpy())
-
-    return np.sum(scores * np.log(scores / kl_score))
+    return fid_score, is_score

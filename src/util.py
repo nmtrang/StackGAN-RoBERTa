@@ -30,12 +30,24 @@ def save_img_results(data_img, fake, epoch, args):
             args.image_save_dir, f"lr_fake_samples_epoch_{epoch:04}.png"), normalize=True)
 
 
-def save_model(netG, netD, epoch, args):
-    torch.save(netG.state_dict(), os.path.join(
-        args.model_dir, f"netG_epoch_{epoch}.pth"))
+def save_model(netG, netD, epoch, loss_metrics, args):
+    torch.save({
+        'epoch': epoch,
+        'model_state_dict': netG.state_dict(),
+        'loss_metrics': loss_metrics
+    }, os.path.join(args.model_dir, "netG.pth"))
+    # torch.save(netG.state_dict(), os.path.join(
+    #     args.model_dir, f"netG_epoch_{epoch}.pth"))
     # implementation has saved just the last disc decision
-    torch.save(netD.state_dict(), os.path.join(
-        args.model_dir, f"netD_epoch_{epoch}.pth"))
+    # checkpoint_gen = '../output/checkpoints/gen_checkpoint.pth'
+    torch.save({
+        'epoch': epoch,
+        'model_state_dict': netD.state_dict(),
+        'loss_metrics': loss_metrics
+    }, os.path.join(args.model_dir, "netD.pth"))
+    # checkpoint_disc = '../output/checkpoints/disc_checkpoint.pth'
+    # torch.save(netD.state_dict(), os.path.join(
+    #     args.model_dir, f"netD_epoch_{epoch}.pth"))
     print("Save G/D models")
 
 

@@ -64,7 +64,7 @@ class CAug(nn.Module):
     Takes input as roberta embeddings of annotations and sends output to Stage 1 and 2 generators.
     """
 
-    def __init__(self, emb_dim=768, n_g=128, device="cpu"):  # ! CHANGE THIS TO CUDA
+    def __init__(self, emb_dim=768, n_g=128, device="cuda"):  # ! CHANGE THIS TO CUDA
         """
         @param emb_dim (int)            : Size of annotation embeddings.
         @param n_g      (int)           : Dimension of mu, epsilon and c_0_hat
@@ -123,7 +123,7 @@ class Stage1Generator(nn.Module):
         self.caug = CAug(emb_dim=self.emb_dim)
 
         # (batch, n_g + n_z) -> (batch, inp_ch * 4 * 4)
-        self.fc = nn.Sequential(
+        self.fc = nn.Sequential(  # feature extractor
             nn.Linear(self.n_g + self.n_z, self.inp_ch * 4 * 4, bias=False),
             nn.BatchNorm1d(self.inp_ch * 4 * 4),
             nn.ReLU(True),
@@ -163,7 +163,6 @@ class Stage1Generator(nn.Module):
         inp = self.up4(inp)  # (batch, 64, 64, 64)
 
         fake_img = self.img(inp)  # (batch, 3, 64, 64)
-        self.fake_img = fake_img
         
         return None, fake_img, mu, logvar
     

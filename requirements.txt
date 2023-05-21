@@ -9,4 +9,4 @@ torchvision
 transformers
 torchfile
 streamlit
-pytorch-fid
+pytorch-ignite

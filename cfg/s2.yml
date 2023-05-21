@@ -1,6 +1,6 @@
 CONFIG_NAME: "stage2"
 STAGE: 2
-train_bs: 64 # 64
+train_bs: 128 # 64
 train_workers: 1
 embedding_type: "roberta"
 TRAIN_MAX_EPOCH: 600
@@ -8,7 +8,7 @@ TRAIN_GEN_LR: 0.0002 # 2e-4
 TRAIN_DISC_LR: 0.0002 # 2e-4
 TRAIN_LR_DECAY_EPOCH: 100
 TRAIN_SNAPSHOT_INTERVAL: 10 # 2000
-STAGE1_G_path: "../output/model/stage1_netG_epoch_600.pth"
+STAGE1_G_path: "../output/model/stage1/netG.pth"
 NET_G_path: ""
 NET_D_path: ""
 

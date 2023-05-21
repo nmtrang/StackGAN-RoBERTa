@@ -68,7 +68,7 @@ def add_train_args(parser):
         default="../old_outputs/output_0/model/netG_epoch_120.pth",
         help="Stage 1 Generator model path for Stage 2 training",
     )
-    parser.add_argument("--train_bs", type=int, default=2,
+    parser.add_argument("--train_bs", type=int, default=1,
                         help="train batch size")
     parser.add_argument("--test_bs", type=int, default=1,
                         help="test batch size")
@@ -125,13 +125,13 @@ def add_train_args(parser):
     parser.add_argument(
         "--image_save_dir",
         type=str,
-        default="../output/image",
+        default="../output/image/stage1",
         help="Image save dir"
     )
     parser.add_argument(
         "--model_dir",
         type=str,
-        default="../output/model",
+        default="../output/model/stage1",
         help="Model save dir"
     )
     parser.add_argument(
@@ -147,7 +147,7 @@ def add_train_args(parser):
     parser.add_argument(
         "--device",
         type=str,
-        default="cpu",  # ! CHANGE THIS TO CUDA BEFORE TRAINING
+        default="cuda",  # ! CHANGE THIS TO CUDA BEFORE TRAINING
         help="Device type: cuda/cpu"
     )
 
@@ -163,7 +163,7 @@ def add_model_args(parser):
     parser.add_argument("--m_g", type=int, default=16, help="")
     parser.add_argument("--n_d", type=int, default=128, help="")
     parser.add_argument("--w_0", type=int, default=64, help="")
-    parser.add_argument("--h_0", type=int, default=256, help="")
+    parser.add_argument("--h_0", type=int, default=64, help="")
     parser.add_argument("--w", type=int, default=256, help="")
     parser.add_argument("--h", type=int, default=256, help="")
 

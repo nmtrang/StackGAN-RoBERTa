@@ -26,14 +26,51 @@ import args
 import dataset
 import engine
 import util
+import wandb
 from layers import (Stage1Discriminator, Stage1Generator, Stage2Discriminator,
                     Stage2Generator)
 # from engine import fid
-
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = True
 data_args = args.get_all_args()
 
 print("__"*80)
 print("Imports Done...")
+
+checkpoint = False
+CHECKPOINT_PATH = '../output/model/stage1'
+CHECKPOINT_GEN_PATH = CHECKPOINT_PATH + '/netG.pth'
+CHECKPOINT_DIS_PATH = CHECKPOINT_PATH + '/netD.pth'
+
+# run = wandb.init(project='StackGAN-RoBERTa', name='stage1', id='qlium3kd', notes='This is training stage 1', resume=True,
+#                  tags=['stage1', 'roberta'], dir=data_args.log_dir)
+run = wandb.init(project='StackGAN-RoBERTa', name='stage1-roberta', notes='This is training stage 1', resume=True,
+                 tags=['stage1', 'roberta'], dir=data_args.log_dir)
+
+
+def fetch_checkpoints(gen, disc):
+    if wandb.run.resumed:
+        print("________ FETCHING CHECKPOINTS ________")
+        checkpoint_gen = torch.load(CHECKPOINT_GEN_PATH)
+        checkpoint_disc = torch.load(CHECKPOINT_DIS_PATH)
+
+        gen.load_state_dict(checkpoint_gen['model_state_dict'])
+        print("__"*80)
+        print("Generator loaded from: ", CHECKPOINT_GEN_PATH)
+        print("__"*80)
+        disc.load_state_dict(checkpoint_disc['model_state_dict'])
+        print("__"*80)
+        print("Discriminator loaded from: ", CHECKPOINT_DIS_PATH)
+        print("__"*80)
+
+        epoch_gen = checkpoint_gen['epoch'] + 1
+        print(f'----- previous epoch = {epoch_gen - 1} -----')
+        epoch_disc = checkpoint_disc['epoch']
+        loss_metrics_gen = checkpoint_gen['loss_metrics']
+        print(f'----- previous loss_metrics = {loss_metrics_gen} -----')
+        loss_metrics_disc = checkpoint_disc['loss_metrics']
+
+        return gen, disc, epoch_gen
 
 
 def load_stage1(args):
@@ -49,17 +86,12 @@ def load_stage1(args):
     netG.apply(engine.weights_init)
     netD.apply(engine.weights_init)
 
-    # * Load saved model:
-    if args.NET_G_path != "":
-        netG.load_state_dict(torch.load(args.NET_G_path))
-        print("__"*80)
-        print("Generator loaded from: ", args.NET_G_path)
-        print("__"*80)
-    if args.NET_D_path != "":
-        netD.load_state_dict(torch.load(args.NET_D_path))
-        print("__"*80)
-        print("Discriminator loaded from: ", args.NET_D_path)
-        print("__"*80)
+    # * Load saved checkpoints:
+    # if args.NET_G_path != "" and args.NET_D_path != "":
+    if len(os.listdir(CHECKPOINT_PATH)) > 0:
+        netG, netD, epoch = fetch_checkpoints(netG, netD)
+    else:
+        epoch = 1
 
     # * Load on device:
     if args.device == "cuda":
@@ -77,7 +109,7 @@ def load_stage1(args):
     print(netD)
     print("__"*80)
 
-    return netG, netD
+    return netG, netD, epoch
 
 
 def load_stage2(args):
@@ -95,19 +127,19 @@ def load_stage2(args):
     netD.apply(engine.weights_init)
 
     # * Load saved model:
-    if args.NET_G_path != "":
-        netG.load_state_dict(torch.load(args.NET_G_path))
-        print("Generator loaded from: ", args.NET_G_path)
-    elif args.STAGE1_G_path != "":
-        netG.stage1_gen.load_state_dict(torch.load(args.STAGE1_G_path))
-        print("Generator 1 loaded from: ", args.STAGE1_G_path)
+    if len(os.listdir(CHECKPOINT_PATH)) > 0:
+        netG, netD, epoch = fetch_checkpoints(netG, netD)
+        print("Generator loaded from: ", CHECKPOINT_GEN_PATH)
+        print("Discriminator loaded from: ", CHECKPOINT_DIS_PATH)
+    elif len(os.listdir('../output/model')) > 0:
+        stage1_gen_checkpoint = torch.load('../output/model/netG.pth')
+        netG.stage1_gen.load_state_dict(
+            stage1_gen_checkpoint['model_state_dict'])
+        epoch = 1
+        print("Generator 1 loaded from: '../output/model/netG.pth'")
     else:
         print("Please give the Stage 1 generator path")
         return
-
-    if args.NET_D_path != "":
-        netD.load_state_dict(torch.load(args.NET_D_path))
-        print("Discriminator loaded from: ", args.NET_D_path)
 
     # * Load on device:
     if args.device == "cuda":
@@ -123,15 +155,15 @@ def load_stage2(args):
     print(netD)
     print("__"*80)
 
-    return netG, netD
+    return netG, netD, epoch
 
 
 def run(args):
-    if args.STAGE == 1:
-        netG, netD = load_stage1(args)
-    else:
-        netG, netD = load_stage2(args)
 
+    if args.STAGE == 1:
+        netG, netD, epoch = load_stage1(args)
+    else:
+        netG, netD, epoch = load_stage2(args)
     # Setting up device
     device = torch.device(args.device)
 
@@ -187,8 +219,8 @@ def run(args):
     util.make_dir(args.image_save_dir)
     util.make_dir(args.model_dir)
     util.make_dir(args.log_dir)
-
-    for epoch in range(1, args.TRAIN_MAX_EPOCH+1):
+    while epoch <= args.TRAIN_MAX_EPOCH:
+        # for epoch in range(1, args.TRAIN_MAX_EPOCH+1):
         print("__"*80)
         start_t = time.time()
 
@@ -200,38 +232,31 @@ def run(args):
             for param_group in optimizerD.param_groups:
                 param_group["lr"] = disc_lr
 
-        errD, errD_real, errD_wrong, errD_fake, errG, kl_loss, count = engine.train_new_fn(
+        errD, errD_real, errD_wrong, errD_fake, errG, kl_loss, count, loss_metrics = engine.train_new_fn(
             train_data_loader, args, netG, netD, real_labels, fake_labels,
             noise, fixed_noise,  optimizerD, optimizerG, epoch, count)
 
+        wandb.log(loss_metrics, step=epoch)
+
         end_t = time.time()
-        
 
         print(f"[{epoch}/{args.TRAIN_MAX_EPOCH}] Loss_D: {errD:.4f}, Loss_G: {errG:.4f}, Loss_KL: {kl_loss:.4f}, Loss_real: {errD_real:.4f}, Loss_wrong: {errD_wrong:.4f}, Loss_fake: {errD_fake:.4f}, Total Time: {end_t-start_t :.2f} sec")
-        if epoch % args.TRAIN_SNAPSHOT_INTERVAL == 0 or epoch == 1:
-            util.save_model(netG, netD, epoch, args)
+        # args.TRAIN_SNAPSHOT_INTERVAL == 0
+        # if epoch % 50 == 0 or epoch == 1:
 
-    # # Generate fake images and calculate FID
-    # with torch.no_grad():
-    #     fake_images = []
-    #     for i in range(args.NUM_GENERATE):
-    #         noise = torch.randn(args.FID_BATCH_SIZE, args.n_z, device=device)
-    #         fake_images.append(netG(noise))
-            
-    #     fake_images = torch.cat(fake_images, dim=0)
-    #     fid_score = fid(real_images, fake_images, args)
-        
-    # wandb.log({'FID': fid_score})
-    # print(f"FID: {fid_score}")
+        # if epoch % 50 == 0 or epoch == 1:
+        util.save_model(netG, netD, epoch, loss_metrics, args)
 
-    util.save_model(netG, netD, args.TRAIN_MAX_EPOCH, args)
+        epoch += 1
+
+    util.save_model(netG, netD, args.TRAIN_MAX_EPOCH, loss_metrics, args)
 
 
 def sample(args, datapath):
     if args.STAGE == 1:
-        netG, _ = load_stage1(args)
+        netG, _, _ = load_stage1(args)
     else:
-        netG, _ = load_stage2(args)
+        netG, _, _ = load_stage2(args)
     netG.eval()
 
     # * Load text embeddings generated from the encoder:
