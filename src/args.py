@@ -125,13 +125,13 @@ def add_train_args(parser):
     parser.add_argument(
         "--image_save_dir",
         type=str,
-        default="../output/image/stage1",
+        default="../output/image/stage2_regu",
         help="Image save dir"
     )
     parser.add_argument(
         "--model_dir",
         type=str,
-        default="../output/model/stage1",
+        default="../output/model/stage2_regu",
         help="Model save dir"
     )
     parser.add_argument(

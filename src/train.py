@@ -37,15 +37,19 @@ data_args = args.get_all_args()
 print("__"*80)
 print("Imports Done...")
 
-checkpoint = False
-CHECKPOINT_PATH = '../output/model/stage1'
+CHECKPOINT_PATH = '../output/model/stage2_regu'
 CHECKPOINT_GEN_PATH = CHECKPOINT_PATH + '/netG.pth'
 CHECKPOINT_DIS_PATH = CHECKPOINT_PATH + '/netD.pth'
 
 # run = wandb.init(project='StackGAN-RoBERTa', name='stage1', id='qlium3kd', notes='This is training stage 1', resume=True,
 #                  tags=['stage1', 'roberta'], dir=data_args.log_dir)
-run = wandb.init(project='StackGAN-RoBERTa', name='stage1-roberta', notes='This is training stage 1', resume=True,
-                 tags=['stage1', 'roberta'], dir=data_args.log_dir)
+run = wandb.init(project='StackGAN-RoBERTa',
+                 name='stage2-regu',
+                 #  id='kra822ov',
+                 notes='This is training stage 2 (with regularization applied)',
+                 resume=True,
+                 tags=['stage2', 'roberta', 'regu'],
+                 dir=data_args.log_dir)
 
 
 def fetch_checkpoints(gen, disc):
@@ -70,7 +74,7 @@ def fetch_checkpoints(gen, disc):
         print(f'----- previous loss_metrics = {loss_metrics_gen} -----')
         loss_metrics_disc = checkpoint_disc['loss_metrics']
 
-        return gen, disc, epoch_gen
+    return gen, disc, epoch_gen
 
 
 def load_stage1(args):
@@ -126,17 +130,18 @@ def load_stage2(args):
     netG.apply(engine.weights_init)
     netD.apply(engine.weights_init)
 
+    STAGE1_GEN_PATH = '../output/model/stage1_regu'
     # * Load saved model:
     if len(os.listdir(CHECKPOINT_PATH)) > 0:
         netG, netD, epoch = fetch_checkpoints(netG, netD)
         print("Generator loaded from: ", CHECKPOINT_GEN_PATH)
         print("Discriminator loaded from: ", CHECKPOINT_DIS_PATH)
-    elif len(os.listdir('../output/model')) > 0:
-        stage1_gen_checkpoint = torch.load('../output/model/netG.pth')
+    elif len(os.listdir(STAGE1_GEN_PATH)) > 0:
+        stage1_gen_checkpoint = torch.load(f'{STAGE1_GEN_PATH}/netG.pth')
         netG.stage1_gen.load_state_dict(
             stage1_gen_checkpoint['model_state_dict'])
         epoch = 1
-        print("Generator 1 loaded from: '../output/model/netG.pth'")
+        print(f"Generator 1 loaded from: {STAGE1_GEN_PATH}")
     else:
         print("Please give the Stage 1 generator path")
         return
@@ -159,7 +164,7 @@ def load_stage2(args):
 
 
 def run(args):
-
+    torch.cuda.empty_cache()
     if args.STAGE == 1:
         netG, netD, epoch = load_stage1(args)
     else:
@@ -186,14 +191,18 @@ def run(args):
     lr_decay_step = args.TRAIN_LR_DECAY_EPOCH
 
     optimizerD = torch.optim.Adam(
-        netD.parameters(), lr=args.TRAIN_DISC_LR, betas=(0.5, 0.999))
+        netD.parameters(), lr=args.TRAIN_DISC_LR, betas=(0.5, 0.999), weight_decay=0.0001)
+
+    # optimizerD = torch.optim.SGD(
+    #     netD.parameters(), lr=args.TRAIN_DISC_LR, momentum=0.9
+    # )
 
     netG_para = []
     for p in netG.parameters():
         if p.requires_grad:
             netG_para.append(p)
     optimizerG = torch.optim.Adam(
-        netG_para, lr=args.TRAIN_GEN_LR, betas=(0.5, 0.999))
+        netG_para, lr=args.TRAIN_GEN_LR, betas=(0.5, 0.999), weight_decay=0.0001)
 
     count = 0
 
@@ -249,7 +258,9 @@ def run(args):
 
         epoch += 1
 
-    util.save_model(netG, netD, args.TRAIN_MAX_EPOCH, loss_metrics, args)
+    # util.save_model(netG, netD, args.TRAIN_MAX_EPOCH, loss_metrics, args)
+
+# TODO: enable this function and use it
 
 
 def sample(args, datapath):
@@ -260,54 +271,58 @@ def sample(args, datapath):
     netG.eval()
 
     # * Load text embeddings generated from the encoder:
-    t_file = torchfile.load(datapath)
-    captions_list = t_file.raw_txt
-    embeddings = np.concatenate(t_file.fea_txt, axis=0)
-    num_embeddings = len(captions_list)
-    print(f"Successfully load sentences from: {args.datapath}")
-    print(f"Total number of sentences: {num_embeddings}")
-    print(f"Num embeddings: {num_embeddings} {embeddings.shape}")
+    val_caption = torch.load(datapath)[0]
+    val_caption = val_caption.to(args.device)
 
     # * Path to save generated samples:
-    save_dir = args.NET_G[:args.NET_G.find(".pth")]
+    save_dir = '../output/val/stage1'
     util.make_dir(save_dir)
 
-    batch_size = np.minimum(num_embeddings, args.train_bs)
+    # batch_size = np.minimum(num_embeddings, args.train_bs)
     nz = args.n_z
-    noise = Variable(torch.FloatTensor(batch_size, nz))
+    noise = Variable(torch.FloatTensor(64, nz))
     noise = noise.to(args.device)
-    count = 0
-    while count < num_embeddings:
-        if count > 3000:
-            break
-        iend = count + batch_size
-        if iend > num_embeddings:
-            iend = num_embeddings
-            count = num_embeddings - batch_size
-        embeddings_batch = embeddings[count:iend]
-        # captions_batch = captions_list[count:iend]
-        text_embedding = Variable(torch.FloatTensor(embeddings_batch))
-        text_embedding = text_embedding.to(args.device)
+    # count = 0
+    # while count < num_embeddings:
+    #     if count > 3000:
+    #         break
+    #     iend = count + batch_size
+    #     if iend > num_embeddings:
+    #         iend = num_embeddings
+    #         count = num_embeddings - batch_size
+    #     embeddings_batch = embeddings[count:iend]
+    #     # captions_batch = captions_list[count:iend]
+    #     text_embedding = Variable(torch.FloatTensor(embeddings_batch))
+    #     text_embedding = text_embedding.to(args.device)
 
-        # * Generate fake images:
-        noise.data.normal_(0, 1)
-        _, fake_imgs, mu, logvar = netG(text_embedding, noise)
-        for i in range(batch_size):
-            save_name = f"{save_dir}/{count+i}.png"
-            im = fake_imgs[i].data.cpu().numpy()
-            im = (im + 1.0) * 127.5
-            im = im.astype(np.uint8)
-            # print("im", im.shape)
-            im = np.transpose(im, (1, 2, 0))
-            # print("im", im.shape)
-            im = Image.fromarray(im)
-            im.save(save_name)
-        count += batch_size
+    # * Generate fake images:
+    noise.data.normal_(0, 1)
+    _, fake_imgs, mu, logvar = netG(val_caption, noise)
+    for i in range(64):
+        save_name = f"{save_dir}/{count+i}.png"
+        im = fake_imgs[i].data.cpu().numpy()
+        im = (im + 1.0) * 127.5
+        im = im.astype(np.uint8)
+        # print("im", im.shape)
+        im = np.transpose(im, (1, 2, 0))
+        # print("im", im.shape)
+        im = Image.fromarray(im)
+        im.save(save_name)
+    count += 64
 
 
 if __name__ == "__main__":
     args_ = args.get_all_args()
     args.print_args(args_)
     run(args_)
-    # datapath = os.path.join(args_.datapath, "test/val_captions.t7")
-    # sample(args_, datapath)
+    try:
+        print('Trying to create samples from val_captions')
+        datapath = os.path.join(args_.datapath, "/val_captions/stage1")
+        for file in os.listdir(datapath):
+            f = os.path.join(datapath, filename)
+            if os.path.isfile(f):
+                sample(args_, datapath)
+        print('Done generating from val_captions')
+    except Exception as e:
+        print(e)
+        print('Something wrong when generating images from val_captions!')

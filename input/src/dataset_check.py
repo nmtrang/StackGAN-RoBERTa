@@ -48,10 +48,10 @@ def display_specific(bird_type_no=0, file_no=0, file_idx=None):
 
 def compare_roberta_emb(file_1, file_2, emb_no=0):
     emb_1 = torch.load(
-        os.path.join(config.ANNOTATION_EMB, file_1, f"{emb_no}.pt"), map_location="cpu"
+        os.path.join(config.ANNOTATION_EMB, file_1, f"{emb_no}.pt")
     )
     emb_2 = torch.load(
-        os.path.join(config.ANNOTATION_EMB, file_2, f"{emb_no}.pt"), map_location="cpu"
+        os.path.join(config.ANNOTATION_EMB, file_2, f"{emb_no}.pt")
     )
     # print(emb_1.shape) # (1, 768)
 

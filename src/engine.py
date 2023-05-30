@@ -37,19 +37,40 @@ def disc_loss(disc, real_imgs, fake_imgs, real_labels, fake_labels, conditional_
     cond = conditional_vector.detach()
     fake_imgs = fake_imgs.detach()
 
-    real_loss = loss_fn(disc(cond, real_imgs), real_labels)
-    fake_loss = loss_fn(disc(cond, fake_imgs), fake_labels)
-    wrong_loss = loss_fn(disc(cond[1:], real_imgs[:-1]), fake_labels[1:])
-    loss = real_loss + (fake_loss + wrong_loss) * 0.5
+    # real pairs
+    real_logits = disc(cond, real_imgs)
+    errD_real = loss_fn(real_logits, real_labels)
 
-    return loss, real_loss, wrong_loss, fake_loss
+    # wrong pairs
+    wrong_logits = disc(cond[1:], fake_imgs[:(batch_size-1)])
+    errD_wrong = loss_fn(wrong_logits, fake_labels[1:])
+
+    # fake pairs
+    fake_logits = disc(cond, fake_imgs)
+    errD_fake = loss_fn(fake_logits, fake_labels)
+
+    errD = errD_real + (errD_fake + errD_wrong) * 0.5
+
+    # return errD, errD_real.data[0], errD_wrong.data[0], errD_fake.data[0]
+
+    # real_loss = loss_fn(disc(cond, real_imgs), real_labels)
+    # fake_loss = loss_fn(disc(cond, fake_imgs), fake_labels)
+    # wrong_loss = loss_fn(disc(cond[1:], real_imgs[:-1]), fake_labels[1:])
+    # loss = real_loss + (fake_loss + wrong_loss) * 0.5
+
+    return errD, errD_real, errD_wrong, errD_fake
 
 
 def gen_loss(disc, fake_imgs, real_labels, conditional_vector):
     loss_fn = nn.BCELoss()
     cond = conditional_vector.detach()
-    fake_loss = loss_fn(disc(cond, fake_imgs), real_labels)
-    return fake_loss
+    # fake pairs
+    fake_logits = disc(cond, fake_imgs)
+    errD_fake = loss_fn(fake_logits, real_labels)
+
+    return errD_fake
+    # fake_loss = loss_fn(disc(cond, fake_imgs), real_labels)
+    # return fake_loss
 
 
 def weights_init(m):
@@ -143,6 +164,7 @@ def train_new_fn(
                             "FID": fid_score}
 
             # * save the image result for each epoch:
+            # lr_fake, fake, _, _ = nn.parallel.data_parallel(netG, inputs, device_ids=[0])
             lr_fake, fake, _, _ = netG(text_emb, fixed_noise)
 
             util.save_img_results(real_images, fake, epoch, args)
@@ -194,7 +216,7 @@ def eval_fn(data_loader, model, device, epoch):
     return fin_outputs, fin_y, LOSS
 
 
-def calculate_fid_and_is(real_images, fake_images, num_images=1000, z_dim=100, device='cuda'):
+def calculate_fid_and_is(real_images, fake_images, num_images=1000, z_dim=100, device=torch.device('cuda')):
     # model = inception_v3(pretrained=True, transform_input=False)
     # model.eval()
     # define fid and is metric

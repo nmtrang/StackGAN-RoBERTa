@@ -68,7 +68,7 @@ class CAug(nn.Module):
         """
         @param emb_dim (int)            : Size of annotation embeddings.
         @param n_g      (int)           : Dimension of mu, epsilon and c_0_hat
-        @param device   (torch.device)  : cuda/cpu
+        @param device   (torch.device)  : F/cpu
         """
         super(CAug, self).__init__()
         self.emb_dim = emb_dim
@@ -114,17 +114,18 @@ class Stage1Generator(nn.Module):
         @param n_z (int) : Dimension of noise vector.
         """
         super(Stage1Generator, self).__init__()
-        self.n_g = n_g
-        self.n_z = n_z
+        self.n_g = n_g  # 128
+        self.n_z = n_z  # 100
         self.emb_dim = emb_dim
         self.inp_ch = self.n_g * 8
 
         # (batch, bert_size) -> (batch, n_g)
         self.caug = CAug(emb_dim=self.emb_dim)
+        n_input = self.n_g + self.n_z
 
         # (batch, n_g + n_z) -> (batch, inp_ch * 4 * 4)
         self.fc = nn.Sequential(  # feature extractor
-            nn.Linear(self.n_g + self.n_z, self.inp_ch * 4 * 4, bias=False),
+            nn.Linear(n_input, self.inp_ch * 4 * 4, bias=False),
             nn.BatchNorm1d(self.inp_ch * 4 * 4),
             nn.ReLU(True),
         )
@@ -163,9 +164,9 @@ class Stage1Generator(nn.Module):
         inp = self.up4(inp)  # (batch, 64, 64, 64)
 
         fake_img = self.img(inp)  # (batch, 3, 64, 64)
-        
+
         return None, fake_img, mu, logvar
-    
+
     # @property
     # def fake_img(self):
     #     return self._fake_img
@@ -189,12 +190,23 @@ class Stage1Discriminator(nn.Module):
                 3, img_dim, kernel_size=4, stride=2, padding=1, bias=False
             ),  # (batch, 64, 32, 32)
             nn.LeakyReLU(0.2, inplace=True),
-            # -> (batch, img_dim * 2, 16, 16)
-            _downsample(img_dim, img_dim * 2),  # (batch, 128, 16, 16)
-            # -> (batch, img_dim * 4, 8, 8)
-            _downsample(img_dim * 2, img_dim * 4),  # (batch, 256, 8, 8)
-            # -> (batch, img_dim * 8, 4, 4)
-            _downsample(img_dim * 4, img_dim * 8),  # (batch, 512, 4, 4)
+            nn.Conv2d(
+                img_dim, img_dim * 2, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(img_dim * 2),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(img_dim*2, img_dim * 4, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(img_dim * 4),
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size (img_dim*4) x 8 x 8
+            nn.Conv2d(img_dim*4, img_dim * 8, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(img_dim * 8),
+            nn.LeakyReLU(0.2, inplace=True),
+            # # -> (batch, img_dim * 2, 16, 16)
+            # _downsample(img_dim, img_dim * 2),  # (batch, 128, 16, 16)
+            # # -> (batch, img_dim * 4, 8, 8)
+            # _downsample(img_dim * 2, img_dim * 4),  # (batch, 256, 8, 8)
+            # # -> (batch, img_dim * 8, 4, 4)
+            # _downsample(img_dim * 4, img_dim * 8),  # (batch, 512, 4, 4)
         )
 
         self.out_logits = nn.Sequential(
@@ -204,12 +216,13 @@ class Stage1Discriminator(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
             # -> (batch, 1)
             nn.Conv2d(img_dim * 8, 1, kernel_size=4, stride=4),
-            nn.Sigmoid(),
+            nn.Sigmoid()
         )
 
     def forward(self, text_emb, img):
         # image encode
         enc = self.down_sample(img)
+        # return enc
 
         # text emb
         compressed = self.fc_for_text(text_emb)
@@ -231,6 +244,7 @@ class Stage2Generator(nn.Module):
     Takes in input from Conditional Augmentation and outputs 256x256 image to Stage2Discrimantor.
     """
 
+    # change emb_dim to 1024 if use cnn-rnn
     def __init__(self, stage1_gen, n_g=128, n_z=100, ef_size=128, n_res=4, emb_dim=768):
         """
         @param n_g (int) : Dimension of c_0_hat.
@@ -253,9 +267,15 @@ class Stage2Generator(nn.Module):
         # -> (batch, n_g*4, 16, 16)
         self.encoder = nn.Sequential(
             conv3x3(3, n_g),  # (batch, 128, 64, 64)
-            nn.LeakyReLU(0.2, inplace=True),  # ? Paper: leaky, code: relu
-            _downsample(n_g, n_g * 2),  # (batch, 256, 32, 32)
-            _downsample(n_g * 2, n_g * 4),  # (batch, 512, 16, 16)
+            nn.ReLU(True),  # ? Paper: leaky, code: relu
+            nn.Conv2d(n_g, n_g * 2, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(n_g * 2),
+            nn.ReLU(True),
+            nn.Conv2d(n_g * 2, n_g * 4, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(n_g * 4),
+            nn.ReLU(True)
+            # _downsample(n_g, n_g * 2),  # (batch, 256, 32, 32)
+            # _downsample(n_g * 2, n_g * 4),  # (batch, 512, 16, 16)
         )
 
         # (batch, ef_size + n_g * 4, 16, 16) -> (batch, n_g * 4, 16, 16)
@@ -332,37 +352,64 @@ class Stage2Discriminator(nn.Module):
         self.down_sample = nn.Sequential(
             # (batch, 3, 64, 64) -> (batch, img_dim//4, 128, 128)
             nn.Conv2d(
-                3, img_dim // 4, kernel_size=4, stride=2, padding=1, bias=False
+                3, img_dim, kernel_size=4, stride=2, padding=1, bias=False
             ),  # (batch, 64, 128, 128)
             nn.LeakyReLU(0.2, inplace=True),
-            # -> (batch, img_dim//2, 64, 64)
-            _downsample(img_dim // 4, img_dim // 2),  # (batch, 128, 64, 64)
-            # -> (batch, img_dim, 32, 32)
-            _downsample(img_dim // 2, img_dim),  # (batch, 256, 32, 32)
-            # -> (batch, img_dim*2, 16, 16)
-            _downsample(img_dim, img_dim * 2),  # (batch, 512, 16, 16)
-            # -> (batch, img_dim*4, 8, 8)
-            _downsample(img_dim * 2, img_dim * 4),  # (batch, 1024, 8, 8)
-            # -> (batch, img_dim*8, 4, 4)
-            _downsample(img_dim * 4, img_dim * 8),  # (batch, 2096, 4, 4)
-            # -> (batch, img_dim*4, 4, 4)
-            conv3x3(img_dim * 8, img_dim * 4),  # (batch, 1024, 4, 4)
-            nn.BatchNorm2d(img_dim * 4),
-            nn.LeakyReLU(0.2, inplace=True),
-            # -> (batch, img_dim*2, 4, 4)
-            conv3x3(img_dim * 4, img_dim * 2),  # (batch, 512, 4, 4)
+            nn.Conv2d(img_dim, img_dim * 2, 4, 2, 1, bias=False),
             nn.BatchNorm2d(img_dim * 2),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.LeakyReLU(0.2, inplace=True),  # 64 * 64 * img_dim * 2
+            nn.Conv2d(img_dim * 2, img_dim * 4, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(img_dim * 4),
+            nn.LeakyReLU(0.2, inplace=True),  # 32 * 32 * img_dim * 4
+            nn.Conv2d(img_dim * 4, img_dim * 8, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(img_dim * 8),
+            nn.LeakyReLU(0.2, inplace=True),  # 16 * 16 * img_dim * 8
+            nn.Conv2d(img_dim * 8, img_dim * 16, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(img_dim * 16),
+            nn.LeakyReLU(0.2, inplace=True),  # 8 * 8 * img_dim * 16
+            nn.Conv2d(img_dim * 16, img_dim * 32, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(img_dim * 32),
+            nn.LeakyReLU(0.2, inplace=True),  # 4 * 4 * img_dim * 32
+            conv3x3(img_dim * 32, img_dim * 16),
+            nn.BatchNorm2d(img_dim * 16),
+            nn.LeakyReLU(0.2, inplace=True),   # 4 * 4 * img_dim * 16
+            conv3x3(img_dim * 16, img_dim * 8),
+            nn.BatchNorm2d(img_dim * 8),
+            nn.LeakyReLU(0.2, inplace=True)   # 4 * 4 * img_dim * 8
+            # # -> (batch, img_dim//2, 64, 64)
+            # _downsample(img_dim // 4, img_dim // 2),  # (batch, 128, 64, 64)
+            # # -> (batch, img_dim, 32, 32)
+            # _downsample(img_dim // 2, img_dim),  # (batch, 256, 32, 32)
+            # # -> (batch, img_dim*2, 16, 16)
+            # _downsample(img_dim, img_dim * 2),  # (batch, 512, 16, 16)
+            # # -> (batch, img_dim*4, 8, 8)
+            # _downsample(img_dim * 2, img_dim * 4),  # (batch, 1024, 8, 8)
+            # # -> (batch, img_dim*8, 4, 4)
+            # _downsample(img_dim * 4, img_dim * 8),  # (batch, 2096, 4, 4)
+            # # -> (batch, img_dim*4, 4, 4)
+            # conv3x3(img_dim * 8, img_dim * 4),  # (batch, 1024, 4, 4)
+            # nn.BatchNorm2d(img_dim * 4),
+            # nn.LeakyReLU(0.2, inplace=True),
+            # # -> (batch, img_dim*2, 4, 4)
+            # conv3x3(img_dim * 4, img_dim * 2),  # (batch, 512, 4, 4)
+            # nn.BatchNorm2d(img_dim * 2),
+            # nn.LeakyReLU(0.2, inplace=True),
         )
 
         self.out_logits = nn.Sequential(
             # (batch, img_dim*2 + n_d, 4, 4) -> (batch, img_dim*2, 4, 4)
-            conv3x3(img_dim * 2 + self.n_d, img_dim * 2),
-            nn.BatchNorm2d(img_dim * 2),
+            # conv3x3(img_dim * 2 + self.n_d, img_dim * 2),
+            # nn.BatchNorm2d(img_dim * 2),
+            # nn.LeakyReLU(0.2, inplace=True),
+            # -> (batch, 1)
+            # nn.Conv2d(img_dim * 2, 1, kernel_size=4, stride=4),
+            # nn.Sigmoid(),
+            conv3x3(img_dim * 8 + self.n_d, img_dim * 8),
+            nn.BatchNorm2d(img_dim * 8),
             nn.LeakyReLU(0.2, inplace=True),
             # -> (batch, 1)
-            nn.Conv2d(img_dim * 2, 1, kernel_size=4, stride=4),
-            nn.Sigmoid(),
+            nn.Conv2d(img_dim * 8, 1, kernel_size=4, stride=4),
+            nn.Sigmoid()
         )
 
     def forward(self, text_emb, img):
@@ -419,7 +466,7 @@ if __name__ == "__main__":
     # assert disc2.shape == (batch_size)
     print()
 
-    ca = CAug(emb_dim=emb_dim, n_g=128, device="cpu")
+    ca = CAug(emb_dim=emb_dim, n_g=128, device="cuda")
     out_ca, _, _ = ca(emb)
     print("Conditional Aug output size: ", out_ca.size())  # (batch_size, 128)
     assert out_ca.shape == (batch_size, 128)
