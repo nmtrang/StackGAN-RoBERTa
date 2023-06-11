@@ -61,7 +61,7 @@ def sent_emb(sent):
             sentence_embedding = torch.mean(token_vecs, dim=0)
             sentence_embedding = sentence_embedding.view(1, -1)
             print(f"Input sentence: {sent}")
-            print(f"RoBERTa embedding: {sentence_embedding}")
+            # print(f"RoBERTa embedding: {sentence_embedding}")
             return sentence_embedding
     except Exception as e:
         # print(f"Error in {bird_type}/{file}")

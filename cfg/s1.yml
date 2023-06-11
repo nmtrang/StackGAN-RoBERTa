@@ -3,11 +3,11 @@ STAGE: 1
 train_bs: 128  # 128 fits / 64 standard
 train_workers: 4
 embedding_type: "roberta" # cnn-rnn  / bert
-TRAIN_MAX_EPOCH: 600
-TRAIN_GEN_LR: 0.0002 # 2e-4
-TRAIN_DISC_LR: 0.0002 # 2e-4
-TRAIN_LR_DECAY_EPOCH: 50
-TRAIN_SNAPSHOT_INTERVAL: 2000
+TRAIN_MAX_EPOCH: 120
+TRAIN_GEN_LR: 0.0001 # 2e-4
+TRAIN_DISC_LR: 0.0001 # 2e-4
+TRAIN_LR_DECAY_EPOCH: 20
+TRAIN_SNAPSHOT_INTERVAL: 10
 NET_G_path: ""
 NET_D_path: ""
 # NET_G_path: "../old_outputs/output_1_0/model/netG_epoch_120.pth"

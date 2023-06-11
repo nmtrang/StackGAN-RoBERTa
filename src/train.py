@@ -30,8 +30,8 @@ import wandb
 from layers import (Stage1Discriminator, Stage1Generator, Stage2Discriminator,
                     Stage2Generator)
 # from engine import fid
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.deterministic=True
+torch.backends.cudnn.benchmark=True
 data_args = args.get_all_args()
 
 print("__"*80)
@@ -43,9 +43,9 @@ CHECKPOINT_DIS_PATH = CHECKPOINT_PATH + '/netD.pth'
 
 # run = wandb.init(project='StackGAN-RoBERTa', name='stage1', id='qlium3kd', notes='This is training stage 1', resume=True,
 #                  tags=['stage1', 'roberta'], dir=data_args.log_dir)
-run = wandb.init(project='StackGAN-RoBERTa',
-                 name='stage2-regu',
-                 #  id='kra822ov',
+run = wandb.init(project='StackGAN-RoBERTa', 
+                 name='stage2-regu', 
+                #  id='kra822ov',
                  notes='This is training stage 2 (with regularization applied)',
                  resume=True,
                  tags=['stage2', 'roberta', 'regu'],
@@ -138,8 +138,7 @@ def load_stage2(args):
         print("Discriminator loaded from: ", CHECKPOINT_DIS_PATH)
     elif len(os.listdir(STAGE1_GEN_PATH)) > 0:
         stage1_gen_checkpoint = torch.load(f'{STAGE1_GEN_PATH}/netG.pth')
-        netG.stage1_gen.load_state_dict(
-            stage1_gen_checkpoint['model_state_dict'])
+        netG.stage1_gen.load_state_dict(stage1_gen_checkpoint['model_state_dict'])
         epoch = 1
         print(f"Generator 1 loaded from: {STAGE1_GEN_PATH}")
     else:
@@ -192,7 +191,7 @@ def run(args):
 
     optimizerD = torch.optim.Adam(
         netD.parameters(), lr=args.TRAIN_DISC_LR, betas=(0.5, 0.999), weight_decay=0.0001)
-
+    
     # optimizerD = torch.optim.SGD(
     #     netD.parameters(), lr=args.TRAIN_DISC_LR, momentum=0.9
     # )
@@ -229,7 +228,7 @@ def run(args):
     util.make_dir(args.model_dir)
     util.make_dir(args.log_dir)
     while epoch <= args.TRAIN_MAX_EPOCH:
-        # for epoch in range(1, args.TRAIN_MAX_EPOCH+1):
+    # for epoch in range(1, args.TRAIN_MAX_EPOCH+1):
         print("__"*80)
         start_t = time.time()
 
@@ -255,14 +254,12 @@ def run(args):
 
         # if epoch % 50 == 0 or epoch == 1:
         util.save_model(netG, netD, epoch, loss_metrics, args)
-
+            
         epoch += 1
 
     # util.save_model(netG, netD, args.TRAIN_MAX_EPOCH, loss_metrics, args)
 
 # TODO: enable this function and use it
-
-
 def sample(args, datapath):
     if args.STAGE == 1:
         netG, _, _ = load_stage1(args)

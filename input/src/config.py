@@ -2,7 +2,7 @@
 
 # ROBERTA_PATH = "../data/roberta_base"
 ANNOTATIONS = "../data/birds/text_c10"
-ANNOTATION_EMB = "../data/birds/embeddings"
+ANNOTATION_EMB = "../data/birds/embeddings_roberta"
 IMAGE_DIR = "../data/CUB_200_2011/images"
 EMB_LEN = "../data/emb_lens.txt"
 SENT_LEN = "../data/sent_len.txt"

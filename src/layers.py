@@ -64,7 +64,7 @@ class CAug(nn.Module):
     Takes input as roberta embeddings of annotations and sends output to Stage 1 and 2 generators.
     """
 
-    def __init__(self, emb_dim=768, n_g=128, device="cuda"):  # ! CHANGE THIS TO CUDA
+    def __init__(self, emb_dim=768, n_g=128, device="cpu"):  # ! CHANGE THIS TO CUDA
         """
         @param emb_dim (int)            : Size of annotation embeddings.
         @param n_g      (int)           : Dimension of mu, epsilon and c_0_hat
@@ -267,15 +267,9 @@ class Stage2Generator(nn.Module):
         # -> (batch, n_g*4, 16, 16)
         self.encoder = nn.Sequential(
             conv3x3(3, n_g),  # (batch, 128, 64, 64)
-            nn.ReLU(True),  # ? Paper: leaky, code: relu
-            nn.Conv2d(n_g, n_g * 2, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(n_g * 2),
-            nn.ReLU(True),
-            nn.Conv2d(n_g * 2, n_g * 4, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(n_g * 4),
-            nn.ReLU(True)
-            # _downsample(n_g, n_g * 2),  # (batch, 256, 32, 32)
-            # _downsample(n_g * 2, n_g * 4),  # (batch, 512, 16, 16)
+            nn.LeakyReLU(0.2, inplace=True),  # ? Paper: leaky, code: relu
+            _downsample(n_g, n_g * 2),  # (batch, 256, 32, 32)
+            _downsample(n_g * 2, n_g * 4),  # (batch, 512, 16, 16)
         )
 
         # (batch, ef_size + n_g * 4, 16, 16) -> (batch, n_g * 4, 16, 16)
@@ -466,7 +460,7 @@ if __name__ == "__main__":
     # assert disc2.shape == (batch_size)
     print()
 
-    ca = CAug(emb_dim=emb_dim, n_g=128, device="cuda")
+    ca = CAug(emb_dim=emb_dim, n_g=128, device="cpu")
     out_ca, _, _ = ca(emb)
     print("Conditional Aug output size: ", out_ca.size())  # (batch_size, 128)
     assert out_ca.shape == (batch_size, 128)

@@ -147,7 +147,7 @@ def add_train_args(parser):
     parser.add_argument(
         "--device",
         type=str,
-        default="cuda",  # ! CHANGE THIS TO CUDA BEFORE TRAINING
+        default="cpu",  # ! CHANGE THIS TO CUDA BEFORE TRAINING
         help="Device type: cuda/cpu"
     )
 

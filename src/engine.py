@@ -36,7 +36,7 @@ def disc_loss(disc, real_imgs, fake_imgs, real_labels, fake_labels, conditional_
     batch_size = real_imgs.shape[0]
     cond = conditional_vector.detach()
     fake_imgs = fake_imgs.detach()
-
+    
     # real pairs
     real_logits = disc(cond, real_imgs)
     errD_real = loss_fn(real_logits, real_labels)
@@ -216,7 +216,7 @@ def eval_fn(data_loader, model, device, epoch):
     return fin_outputs, fin_y, LOSS
 
 
-def calculate_fid_and_is(real_images, fake_images, num_images=1000, z_dim=100, device=torch.device('cuda')):
+def calculate_fid_and_is(real_images, fake_images, num_images=1000, z_dim=100, device=torch.device('cpu')):
     # model = inception_v3(pretrained=True, transform_input=False)
     # model.eval()
     # define fid and is metric
